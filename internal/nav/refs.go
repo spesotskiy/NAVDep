@@ -52,6 +52,7 @@ var typeWords = []typeWord{
 // ExtractRefs returns the compile-time references in a NAV object text file.
 // The object's own OBJECT header is ignored. Line comments and single-quoted
 // C/AL strings are ignored; double quotes stay, because they are identifiers.
+// Tooltips, captions, option text, and TextConst values are ignored.
 // TableData permission entries are ignored.
 //
 // Each reference is returned once, in source order. A body reference to the
@@ -60,6 +61,7 @@ func ExtractRefs(text string) []Ref {
 	text = strings.TrimPrefix(text, "\uFEFF")
 	text = blankObjectHeader(text)
 	text = maskCommentsAndStrings(text)
+	text = maskProse(text)
 	text = maskTableData(text)
 	c := &collector{}
 	walkCode(text, func(i int) int {
@@ -187,6 +189,183 @@ func maskCommentsAndStrings(text string) string {
 		i++
 	}
 	return b.String()
+}
+
+// proseProperties are object properties whose values are display text.
+// Longer names come first so CaptionML is tried before Caption.
+var proseProperties = []string{
+	"promotedactioncategoriesml",
+	"additionalsearchtermsml",
+	"requestfilterheadingml",
+	"instructionaltextml",
+	"optioncaptionml",
+	"abouttitleml",
+	"abouttextml",
+	"tooltipml",
+	"captionml",
+	"promotedactioncategories",
+	"additionalsearchterms",
+	"requestfilterheading",
+	"instructionaltext",
+	"optioncaption",
+	"abouttitle",
+	"abouttext",
+	"optionstring",
+	"tooltip",
+	"caption",
+}
+
+// maskProse blanks tooltips, captions, option text, and TextConst values.
+// Those are hardcoded display text, not compile-time object references.
+func maskProse(text string) string {
+	buf := []byte(text)
+	walkCode(text, func(i int) int {
+		if end, ok := proseSpan(text, i); ok {
+			blankSpan(buf, i, end)
+			return end
+		}
+		if end, ok := textConstSpan(text, i); ok {
+			blankSpan(buf, i, end)
+			return end
+		}
+		return i
+	})
+	return string(buf)
+}
+
+func proseSpan(s string, i int) (int, bool) {
+	end, ok := matchProseKeyword(s, i)
+	if !ok {
+		return i, false
+	}
+	j := skipHSpace(s, end)
+	if j >= len(s) || s[j] != '=' {
+		return i, false
+	}
+	return skipProseValue(s, j+1), true
+}
+
+func matchProseKeyword(s string, i int) (int, bool) {
+	best := -1
+	for _, name := range proseProperties {
+		end, ok := keywordEnd(s, i, name, false)
+		if ok && end > best {
+			best = end
+		}
+	}
+	if best < 0 {
+		return i, false
+	}
+	return best, true
+}
+
+func skipProseValue(s string, i int) int {
+	i = skipSpace(s, i)
+	if i < len(s) && s[i] == '[' {
+		i = skipBrackets(s, i)
+		i = skipHSpace(s, i)
+		if i < len(s) && s[i] == ';' {
+			i++
+		}
+		return i
+	}
+	return skipToSemicolon(s, i)
+}
+
+func skipBrackets(s string, i int) int {
+	if i >= len(s) || s[i] != '[' {
+		return i
+	}
+	depth := 0
+	for i < len(s) {
+		switch s[i] {
+		case '"':
+			_, ni, ok := readQuoted(s, i)
+			if !ok || ni <= i {
+				return len(s)
+			}
+			i = ni
+		case '\'':
+			ni := skipSingleQuoted(s, i)
+			if ni <= i {
+				return len(s)
+			}
+			i = ni
+		case '[':
+			depth++
+			i++
+		case ']':
+			depth--
+			i++
+			if depth == 0 {
+				return i
+			}
+		default:
+			i++
+		}
+	}
+	return i
+}
+
+func skipToSemicolon(s string, i int) int {
+	for i < len(s) {
+		switch s[i] {
+		case '"':
+			_, ni, ok := readQuoted(s, i)
+			if !ok || ni <= i {
+				return len(s)
+			}
+			i = ni
+		case '\'':
+			ni := skipSingleQuoted(s, i)
+			if ni <= i {
+				return len(s)
+			}
+			i = ni
+		case ';':
+			return i + 1
+		default:
+			i++
+		}
+	}
+	return i
+}
+
+func skipSingleQuoted(s string, i int) int {
+	if i >= len(s) || s[i] != '\'' {
+		return i
+	}
+	i++
+	for i < len(s) {
+		if s[i] == '\'' {
+			if i+1 < len(s) && s[i+1] == '\'' {
+				i += 2
+				continue
+			}
+			return i + 1
+		}
+		i++
+	}
+	return i
+}
+
+func textConstSpan(s string, i int) (int, bool) {
+	end, ok := keywordEnd(s, i, "TextConst", false)
+	if !ok {
+		return i, false
+	}
+	return skipToSemicolon(s, end), true
+}
+
+func blankSpan(buf []byte, from, to int) {
+	if to > len(buf) {
+		to = len(buf)
+	}
+	for j := from; j < to; j++ {
+		if buf[j] != '\n' {
+			buf[j] = ' '
+		}
+	}
 }
 
 // maskTableData blanks permission entries such as TableData 81=rimd and

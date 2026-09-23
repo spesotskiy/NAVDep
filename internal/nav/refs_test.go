@@ -197,6 +197,24 @@ func TestExtractRefsTypeKeywordStaysOnOneLine(t *testing.T) {
 	assertRefs(t, text)
 }
 
+func TestExtractRefsIgnoresTooltipsTextConstAndCaptions(t *testing.T) {
+	text := `
+ToolTipML=ENU=Specifies the number of the XMLport that is created from this XML schema.;
+CaptionML=ENU=New XMLport No.;
+CaptionML=[ENU=XMLport that;
+           FRB=Port XML];
+OptionCaptionML=ENU=Page,Report;
+OptionString=XMLport,Page;
+PromotedActionCategoriesML=ENU=New,Process,Report,View;
+InstructionalTextML=ENU=Open the Page that applies.;
+NoObjectIDErr : TextConst 'ENU=Open Codeunit 12 now.';
+Text000 : TextConst ENU=Run Page 21 later;
+SourceTable=Table18;
+Codeunit 12
+`
+	assertRefs(t, text, numRef("t", 18), numRef("c", 12))
+}
+
 func TestExtractRefsTableRelation(t *testing.T) {
 	text := `
 TableRelation=Customer.No.;
