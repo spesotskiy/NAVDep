@@ -167,6 +167,8 @@ func TestUnusedSkipsReferencedObjects(t *testing.T) {
 func TestWriteUnusedLog(t *testing.T) {
 	dir := t.TempDir()
 	path, err := WriteUnusedLog(dir, `C:\NAV\Objects`, []UnusedObject{
+		{Key: "t81", Name: "Gen. Journal Line"},
+		{Key: "c80", Name: "Open Customer Card"},
 		{Key: "c11", Name: "Gen. Jnl.-Check Line"},
 	})
 	if err != nil {
@@ -177,8 +179,13 @@ func TestWriteUnusedLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, `"unused": 1`) || !strings.Contains(text, `"name": "Gen. Jnl.-Check Line"`) {
+	if !strings.Contains(text, `"Count": 2`) || !strings.Contains(text, `"11 - Gen. Jnl.-Check Line"`) || !strings.Contains(text, `"81 - Gen. Journal Line"`) {
 		t.Fatalf("log = %s", text)
+	}
+	codeunits := strings.Index(text, `"codeunits"`)
+	tables := strings.Index(text, `"tables"`)
+	if codeunits < 0 || tables < 0 || codeunits > tables {
+		t.Fatalf("groups out of order:\n%s", text)
 	}
 	empty, err := WriteUnusedLog(dir, `C:\NAV\Objects`, nil)
 	if err != nil {
@@ -188,7 +195,7 @@ func TestWriteUnusedLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"names": []`) {
+	if !strings.Contains(string(data), `"unused": 0`) || strings.Contains(string(data), `"codeunits"`) {
 		t.Fatalf("empty log = %s", data)
 	}
 }

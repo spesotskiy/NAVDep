@@ -147,7 +147,7 @@ func TestDependentsPrintsJSONByType(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(unused)
-	if !strings.Contains(text, `"name": "Other"`) || strings.Contains(text, "Gen. Jnl.-Post Line") {
+	if !strings.Contains(text, `"2 - Other"`) || strings.Contains(text, "Gen. Jnl.-Post Line") {
 		t.Fatalf("unused log = %s", text)
 	}
 }

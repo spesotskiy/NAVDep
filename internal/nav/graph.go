@@ -52,6 +52,13 @@ type UnusedObject struct {
 	Name string `json:"name"`
 }
 
+// UnusedGroup is one object type in unused.json.
+// Names are "id - name", sorted by id.
+type UnusedGroup struct {
+	Count int      `json:"Count"`
+	Names []string `json:"Names"`
+}
+
 // Graph is the reverse map from callee key to the objects that reference it.
 type Graph struct {
 	callers map[string]map[string]struct{}
@@ -258,19 +265,14 @@ func (g *Graph) Unused() []UnusedObject {
 
 // WriteUnusedLog writes objects to unused.json inside dir and returns that path.
 // folder is the scanned folder recorded in the file. Each build replaces the file.
+// Objects are grouped by type. A group name is the plural type, such as "codeunits".
+// Each name is "id - name", sorted by id. Types with no unused objects are omitted.
 func WriteUnusedLog(dir, folder string, objects []UnusedObject) (string, error) {
-	if objects == nil {
-		objects = []UnusedObject{}
-	}
-	doc := struct {
-		Folder string         `json:"folder"`
-		Unused int            `json:"unused"`
-		Names  []UnusedObject `json:"names"`
-	}{
+	doc := unusedDocument{
 		Folder: folder,
 		Unused: len(objects),
-		Names:  objects,
 	}
+	doc.fill(objects)
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return "", err
@@ -281,6 +283,77 @@ func WriteUnusedLog(dir, folder string, objects []UnusedObject) (string, error) 
 		return "", err
 	}
 	return path, nil
+}
+
+// unusedDocument is unused.json. Group fields follow the object type table.
+type unusedDocument struct {
+	Folder     string       `json:"folder"`
+	Unused     int          `json:"unused"`
+	Codeunits  *UnusedGroup `json:"codeunits,omitempty"`
+	Dataports  *UnusedGroup `json:"dataports,omitempty"`
+	Forms      *UnusedGroup `json:"forms,omitempty"`
+	MenuSuites *UnusedGroup `json:"menusuites,omitempty"`
+	Pages      *UnusedGroup `json:"pages,omitempty"`
+	Queries    *UnusedGroup `json:"queries,omitempty"`
+	Reports    *UnusedGroup `json:"reports,omitempty"`
+	Tables     *UnusedGroup `json:"tables,omitempty"`
+	XMLPorts   *UnusedGroup `json:"xmlports,omitempty"`
+}
+
+func (d *unusedDocument) fill(objects []UnusedObject) {
+	byPrefix := map[string][]unusedLabel{}
+	for _, obj := range objects {
+		prefix, id, ok := splitKey(obj.Key)
+		if !ok {
+			continue
+		}
+		byPrefix[prefix] = append(byPrefix[prefix], unusedLabel{
+			id:    id,
+			label: strconv.Itoa(id) + " - " + obj.Name,
+		})
+	}
+	for _, typ := range objectTypes {
+		labels := byPrefix[typ.Prefix]
+		if len(labels) == 0 {
+			continue
+		}
+		sort.Slice(labels, func(i, j int) bool {
+			return labels[i].id < labels[j].id
+		})
+		names := make([]string, len(labels))
+		for i, label := range labels {
+			names[i] = label.label
+		}
+		d.setGroup(typ.Prefix, &UnusedGroup{Count: len(names), Names: names})
+	}
+}
+
+type unusedLabel struct {
+	id    int
+	label string
+}
+
+func (d *unusedDocument) setGroup(prefix string, group *UnusedGroup) {
+	switch prefix {
+	case "c":
+		d.Codeunits = group
+	case "d":
+		d.Dataports = group
+	case "f":
+		d.Forms = group
+	case "m":
+		d.MenuSuites = group
+	case "p":
+		d.Pages = group
+	case "q":
+		d.Queries = group
+	case "r":
+		d.Reports = group
+	case "t":
+		d.Tables = group
+	case "x":
+		d.XMLPorts = group
+	}
 }
 
 // WriteUnresolvedLog writes names to unresolved.json inside dir and returns that path.

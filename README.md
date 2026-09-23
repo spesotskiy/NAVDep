@@ -53,7 +53,7 @@ After indexing headers, each accepted file is scanned for compile-time reference
 
 The summary line is `objects`, `links`, and `unresolved`. Object count is the number of accepted files. Link count is the number of unique caller edges. Unresolved count is names that do not resolve (unknown, or the same name used by two objects of the same type).
 
-Build then replaces two files in the folder. `unresolved.json` lists names that did not resolve. `unused.json` lists accepted objects that no other file references. A reference by number or by a unique name counts. The object's own file does not. An ambiguous name does not mark either object as used. Each unused entry has the key and name, sorted by type then id.
+Build then replaces two files in the folder. `unresolved.json` lists names that did not resolve. `unused.json` lists accepted objects that no other file references. A reference by number or by a unique name counts. The object's own file does not. An ambiguous name does not mark either object as used. Unused objects are grouped by type, as `codeunits` or `tables`. Each group has `Count` and `Names`. A name is the id and object name, sorted by id, such as `50 - SaaS Log In Management`.
 
 ## What dependents does
 
