@@ -201,6 +201,7 @@ var proseProperties = []string{
 	"optioncaptionml",
 	"abouttitleml",
 	"abouttextml",
+	"descriptionml",
 	"tooltipml",
 	"captionml",
 	"promotedactioncategories",
@@ -210,12 +211,13 @@ var proseProperties = []string{
 	"optioncaption",
 	"abouttitle",
 	"abouttext",
+	"description",
 	"optionstring",
 	"tooltip",
 	"caption",
 }
 
-// maskProse blanks tooltips, captions, option text, and TextConst values.
+// maskProse blanks tooltips, captions, descriptions, option text, and TextConst values.
 // Those are hardcoded display text, not compile-time object references.
 func maskProse(text string) string {
 	buf := []byte(text)
@@ -324,6 +326,8 @@ func skipToSemicolon(s string, i int) int {
 			i = ni
 		case ';':
 			return i + 1
+		case '}':
+			return i
 		default:
 			i++
 		}

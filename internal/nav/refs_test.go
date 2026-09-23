@@ -207,12 +207,14 @@ OptionCaptionML=ENU=Page,Report;
 OptionString=XMLport,Page;
 PromotedActionCategoriesML=ENU=New,Process,Report,View;
 InstructionalTextML=ENU=Open the Page that applies.;
+Description=Choose the parent record that the post relates to. }
+TableRelation=Customer.No.;
 NoObjectIDErr : TextConst 'ENU=Open Codeunit 12 now.';
 Text000 : TextConst ENU=Run Page 21 later;
 SourceTable=Table18;
 Codeunit 12
 `
-	assertRefs(t, text, numRef("t", 18), numRef("c", 12))
+	assertRefs(t, text, numRef("t", 18), numRef("c", 12), nameRef("t", "Customer"))
 }
 
 func TestExtractRefsTableRelation(t *testing.T) {
