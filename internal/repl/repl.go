@@ -93,13 +93,7 @@ func (s *session) cmdDependents(args []string) {
 		fmt.Fprintln(s.out, "error: run build before dependents")
 		return
 	}
-	for _, d := range s.graph.Dependents(key) {
-		if d.Name == "" {
-			fmt.Fprintln(s.out, d.Key)
-			continue
-		}
-		fmt.Fprintf(s.out, "%s - %s\n", d.Key, d.Name)
-	}
+	fmt.Fprintln(s.out, nav.FormatDependents(s.graph.Dependents(key)))
 }
 
 func (s *session) cmdHelp(args []string) {
@@ -109,7 +103,7 @@ func (s *session) cmdHelp(args []string) {
 	}
 	fmt.Fprint(s.out, `commands:
   build <folder>    scan a folder and replace the dependency map
-  dependents <key>  list objects that reference the key (for example c12)
+  dependents <key>  print callers as JSON grouped by type, ids joined by |
   help              show this help
   exit, quit        end the session
 `)

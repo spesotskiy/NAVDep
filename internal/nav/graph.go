@@ -1,6 +1,7 @@
 package nav
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -160,6 +161,30 @@ func (g *Graph) Dependents(key string) []Dependent {
 		return lessKey(out[i].Key, out[j].Key)
 	})
 	return out
+}
+
+// FormatDependents prints callers as JSON grouped by type prefix.
+// Ids of one type are joined by "|", in type order then numeric id.
+// Callers c11, c12, t17, and t81 become {"c":"11|12","t":"17|81"}.
+// No callers becomes {}.
+func FormatDependents(deps []Dependent) string {
+	grouped := map[string][]string{}
+	for _, d := range deps {
+		prefix, id, ok := splitKey(d.Key)
+		if !ok {
+			continue
+		}
+		grouped[prefix] = append(grouped[prefix], strconv.Itoa(id))
+	}
+	out := make(map[string]string, len(grouped))
+	for prefix, ids := range grouped {
+		out[prefix] = strings.Join(ids, "|")
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
 }
 
 func lessKey(a, b string) bool {

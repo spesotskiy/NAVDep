@@ -1,6 +1,6 @@
 # navdep
 
-Status as of **2026-09-24 01:13 +03:00**.
+Status as of **2026-09-24 01:22 +03:00**.
 
 Interactive console for a folder of Navision object text files. One process, no external dependencies. `build` indexes the folder and builds a reverse map of compile-time references. `dependents` reads that map.
 
@@ -16,8 +16,7 @@ go run ./cmd/navdep
 navdep> build "C:\NAV\Objects"
 objects: 2, links: 2, unresolved: 0
 navdep> dependents c12
-c11 - Gen. Jnl.-Check Line
-t81 - Gen. Journal Line
+{"c":"11","t":"81"}
 navdep> help
 navdep> exit
 ```
@@ -56,9 +55,10 @@ The summary line is `objects`, `links`, and `unresolved`. Object count is the nu
 
 `dependents <key>` requires a successful `build` first. The key is a type prefix plus an id, such as `c12` or `t81`, and the match ignores case.
 
-Each caller is printed on its own line as `key - name`, sorted by type prefix then numeric id:
+Callers are printed as one JSON object. Each key is a type prefix, and the value is the matching ids joined by `|`, sorted by type then numeric id. Callers `c11`, `c12`, `t17`, and `t81` print:
 
 ```
-c11 - Gen. Jnl.-Check Line
-t81 - Gen. Journal Line
+{"c":"11|12","t":"17|81"}
 ```
+
+No callers prints `{}`.

@@ -1,0 +1,4 @@
+OBJECT Codeunit 11 Gen. Jnl.-Check Line
+Codeunit 12;
+CODEUNIT::"Gen. Jnl.-Post Line";
+CODEUNIT.RUN(12);

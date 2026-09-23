@@ -1,0 +1,4 @@
+OBJECT Codeunit 12 "Gen. Jnl.-Post Line"
+CODEUNIT.RUN(CODEUNIT::12);
+// Codeunit 99
+Message('Codeunit 99');

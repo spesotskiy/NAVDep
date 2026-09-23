@@ -1,0 +1,7 @@
+OBJECT Page 21 Customer Card
+{
+  PROPERTIES
+  {
+    SourceTable=Table18;
+  }
+}

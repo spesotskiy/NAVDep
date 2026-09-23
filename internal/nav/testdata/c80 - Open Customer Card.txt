@@ -1,0 +1,2 @@
+OBJECT Codeunit 80 Open Customer Card
+PAGE.RUNMODAL(PAGE::"Customer Card");

@@ -1,0 +1,2 @@
+OBJECT Codeunit 50002 Also Named
+CODEUNIT::"Also Named";

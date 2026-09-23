@@ -1,0 +1,4 @@
+OBJECT Table 81 Gen. Journal Line
+CODEUNIT::"Gen. Jnl.-Post Line";
+CODEUNIT::"Missing";
+TableRelation=Customer.No.;

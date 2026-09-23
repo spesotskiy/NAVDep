@@ -116,6 +116,25 @@ func TestBuildReportsHeaderMismatch(t *testing.T) {
 	}
 }
 
+func TestDependentsPrintsJSONByType(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"c2 - Other.txt":                 "OBJECT Codeunit 2 Other\r\nCodeunit 12;\r\n",
+		"c11 - Gen. Jnl.-Check Line.txt": "OBJECT Codeunit 11 Gen. Jnl.-Check Line\r\nCodeunit 12;\r\n",
+		"c12 - Gen. Jnl.-Post Line.txt":  "OBJECT Codeunit 12 \"Gen. Jnl.-Post Line\"\r\n",
+		"t81 - Gen. Journal Line.txt":    "OBJECT Table 81 Gen. Journal Line\r\nCODEUNIT::\"Gen. Jnl.-Post Line\";\r\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := runScript(t, "build \""+dir+"\"\ndependents c12\nexit\n")
+	if !strings.Contains(out, `{"c":"2|11","t":"81"}`) {
+		t.Fatalf("json missing:\n%s", out)
+	}
+}
+
 func TestQuotedPathAndBlankLines(t *testing.T) {
 	out := runScript(t, "\n\"unterminated\nhelp extra\nquit\n")
 	if !strings.Contains(out, "unterminated quote") {

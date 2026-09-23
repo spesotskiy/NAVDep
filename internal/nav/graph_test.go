@@ -71,48 +71,60 @@ func TestBuildCatalogsObjects(t *testing.T) {
 }
 
 func TestBuildFillsReverseMap(t *testing.T) {
-	dir := t.TempDir()
-	files := map[string]string{
-		"c11 - Gen. Jnl.-Check Line.txt": "OBJECT Codeunit 11 Gen. Jnl.-Check Line\r\n" +
-			"Codeunit 12;\r\n" +
-			"CODEUNIT::\"Gen. Jnl.-Post Line\";\r\n" +
-			"CODEUNIT.RUN(12);\r\n",
-		"c12 - Gen. Jnl.-Post Line.txt": "OBJECT Codeunit 12 \"Gen. Jnl.-Post Line\"\r\n" +
-			"CODEUNIT.RUN(CODEUNIT::12);\r\n" +
-			"// Codeunit 99\r\n" +
-			"Message('Codeunit 99');\r\n",
-		"t81 - Gen. Journal Line.txt": "OBJECT Table 81 Gen. Journal Line\r\n" +
-			"CODEUNIT::\"Gen. Jnl.-Post Line\";\r\n" +
-			"CODEUNIT::\"Missing\";\r\n" +
-			"TableRelation=Customer.No.;\r\n",
-		"c50001 - Also Named.txt": "OBJECT Codeunit 50001 Also Named\r\n",
-		"c50002 - Also Named.txt": "OBJECT Codeunit 50002 Also Named\r\n" +
-			"CODEUNIT::\"Also Named\";\r\n",
+	g, sum := buildTestdata(t)
+	if sum.Objects != 7 || sum.Links != 4 || sum.Unresolved != 3 || len(sum.Warnings) != 0 {
+		t.Fatalf("summary = %+v", sum)
 	}
-	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	g, sum, err := Build(dir)
+	assertDependents(t, g, "c12",
+		Dependent{Key: "c11", Name: "Gen. Jnl.-Check Line"},
+		Dependent{Key: "t81", Name: "Gen. Journal Line"},
+	)
+	assertDependents(t, g, "c99")
+}
+
+func TestPageSourceTableDependent(t *testing.T) {
+	g, _ := buildTestdata(t)
+	assertDependents(t, g, "t18", Dependent{Key: "p21", Name: "Customer Card"})
+	assertDependents(t, g, "p21", Dependent{Key: "c80", Name: "Open Customer Card"})
+}
+
+func buildTestdata(t *testing.T) (*Graph, Summary) {
+	t.Helper()
+	g, sum, err := Build("testdata")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum.Objects != 5 || sum.Links != 2 || sum.Unresolved != 3 || len(sum.Warnings) != 0 {
-		t.Fatalf("summary = %+v", sum)
-	}
-	got := g.Dependents("c12")
-	want := []Dependent{
-		{Key: "c11", Name: "Gen. Jnl.-Check Line"},
-		{Key: "t81", Name: "Gen. Journal Line"},
-	}
+	return g, sum
+}
+
+func assertDependents(t *testing.T, g *Graph, key string, want ...Dependent) {
+	t.Helper()
+	got := g.Dependents(key)
 	if len(got) != len(want) {
-		t.Fatalf("dependents = %+v", got)
+		t.Fatalf("Dependents(%s) = %+v, want %+v", key, got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("dependents = %+v, want %+v", got, want)
+			t.Fatalf("Dependents(%s) = %+v, want %+v", key, got, want)
 		}
+	}
+}
+
+func TestFormatDependentsGroupsIDsByType(t *testing.T) {
+	deps := []Dependent{
+		{Key: "c2"},
+		{Key: "c11"},
+		{Key: "c12"},
+		{Key: "t17"},
+		{Key: "t81"},
+	}
+	got := FormatDependents(deps)
+	want := `{"c":"2|11|12","t":"17|81"}`
+	if got != want {
+		t.Fatalf("format = %s, want %s", got, want)
+	}
+	if FormatDependents(nil) != "{}" {
+		t.Fatal("empty dependents should be {}")
 	}
 }
 
