@@ -70,6 +70,52 @@ func TestBuildCatalogsObjects(t *testing.T) {
 	}
 }
 
+func TestBuildFillsReverseMap(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"c11 - Gen. Jnl.-Check Line.txt": "OBJECT Codeunit 11 Gen. Jnl.-Check Line\r\n" +
+			"Codeunit 12;\r\n" +
+			"CODEUNIT::\"Gen. Jnl.-Post Line\";\r\n" +
+			"CODEUNIT.RUN(12);\r\n",
+		"c12 - Gen. Jnl.-Post Line.txt": "OBJECT Codeunit 12 \"Gen. Jnl.-Post Line\"\r\n" +
+			"CODEUNIT.RUN(CODEUNIT::12);\r\n" +
+			"// Codeunit 99\r\n" +
+			"Message('Codeunit 99');\r\n",
+		"t81 - Gen. Journal Line.txt": "OBJECT Table 81 Gen. Journal Line\r\n" +
+			"CODEUNIT::\"Gen. Jnl.-Post Line\";\r\n" +
+			"CODEUNIT::\"Missing\";\r\n" +
+			"TableRelation=Customer.No.;\r\n",
+		"c50001 - Also Named.txt": "OBJECT Codeunit 50001 Also Named\r\n",
+		"c50002 - Also Named.txt": "OBJECT Codeunit 50002 Also Named\r\n" +
+			"CODEUNIT::\"Also Named\";\r\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, sum, err := Build(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Objects != 5 || sum.Links != 2 || sum.Unresolved != 3 || len(sum.Warnings) != 0 {
+		t.Fatalf("summary = %+v", sum)
+	}
+	got := g.Dependents("c12")
+	want := []Dependent{
+		{Key: "c11", Name: "Gen. Jnl.-Check Line"},
+		{Key: "t81", Name: "Gen. Journal Line"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("dependents = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("dependents = %+v, want %+v", got, want)
+		}
+	}
+}
+
 func TestDependentsSortedByTypeThenID(t *testing.T) {
 	g := &Graph{
 		callers: map[string]map[string]struct{}{

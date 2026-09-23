@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -30,7 +31,6 @@ type Dependent struct {
 }
 
 // Graph is the reverse map from callee key to the objects that reference it.
-// Build fills catalog and names. Reference scanning fills callers.
 type Graph struct {
 	callers map[string]map[string]struct{}
 	names   map[string]string
@@ -48,8 +48,10 @@ func CanonicalKey(raw string) (string, bool) {
 }
 
 // Build catalogs NAV object text files in folder (top level only) and returns
-// the reverse map. Reference scanning fills callers; until then the map has
-// object names and no links.
+// the reverse map from each referenced object to the objects that reference it.
+// A numeric reference is a key even when that file is absent. A name that does
+// not resolve is counted as unresolved and adds no edge. An object is not a
+// dependent of itself. Each caller is stored once.
 func Build(folder string) (*Graph, Summary, error) {
 	folder = strings.TrimSpace(folder)
 	if folder == "" {
@@ -77,7 +79,66 @@ func Build(folder string) (*Graph, Summary, error) {
 	for key, obj := range cat.Objects {
 		g.names[key] = obj.Name
 	}
-	return g, Summary{Objects: len(cat.Objects), Warnings: warnings}, nil
+	links, unresolved := g.indexRefs(&warnings)
+	return g, Summary{
+		Objects:    len(cat.Objects),
+		Unresolved: unresolved,
+		Links:      links,
+		Warnings:   warnings,
+	}, nil
+}
+
+// indexRefs reads each cataloged file and records its compile-time references.
+func (g *Graph) indexRefs(warnings *[]string) (links, unresolved int) {
+	keys := make([]string, 0, len(g.catalog.Objects))
+	for key := range g.catalog.Objects {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		obj := g.catalog.Objects[key]
+		data, err := os.ReadFile(obj.Path)
+		if err != nil {
+			*warnings = append(*warnings, fmt.Sprintf("%s: %s", filepath.Base(obj.Path), err))
+			continue
+		}
+		for _, ref := range ExtractRefs(DecodeText(data)) {
+			callee, ok := resolveRef(g.catalog, ref)
+			if !ok {
+				unresolved++
+				continue
+			}
+			if callee == obj.Key {
+				continue
+			}
+			if g.addCaller(callee, obj.Key) {
+				links++
+			}
+		}
+	}
+	return links, unresolved
+}
+
+// resolveRef turns a numeric reference into its key, or a name into a catalog key.
+func resolveRef(cat *Catalog, ref Ref) (string, bool) {
+	if ref.Numeric {
+		return ref.Key()
+	}
+	return cat.ResolveName(ref.Prefix, ref.Name)
+}
+
+// addCaller records caller as a dependent of callee. It reports whether the edge is new.
+func (g *Graph) addCaller(callee, caller string) bool {
+	set := g.callers[callee]
+	if set == nil {
+		set = map[string]struct{}{}
+		g.callers[callee] = set
+	}
+	if _, ok := set[caller]; ok {
+		return false
+	}
+	set[caller] = struct{}{}
+	return true
 }
 
 // Dependents returns the callers of key, sorted by type prefix then numeric id.
