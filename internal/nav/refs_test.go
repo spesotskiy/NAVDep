@@ -217,6 +217,46 @@ Codeunit 12
 	assertRefs(t, text, numRef("t", 18), numRef("c", 12), nameRef("t", "Customer"))
 }
 
+func TestExtractRefsIgnoresRdlcReportTag(t *testing.T) {
+	text := `<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition">
+Report 111
+REPORT::"Customer - List"
+`
+	assertRefs(t, text, numRef("r", 111), nameRef("r", "Customer - List"))
+}
+
+func TestExtractRefsSkipsFieldAndControlNames(t *testing.T) {
+	text := `
+{ 1   ;   ;Record ID           ;RecordID      ;CaptionML=ENU=Record ID }
+{ 3   ;   ;Report ID           ;Integer       ;CaptionML=ENU=Report ID }
+Name=Power BI Report FactBox;
+Name=Page Time Sheet List Open;
+DataCaptionFields=Record ID to Approve;
+IF JobQueueEntry."Object Type to Run"::Codeunit THEN
+PostLine@1003 : Codeunit 12;
+TempCust@1010 : TEMPORARY Record "Customer";
+`
+	assertRefs(t, text,
+		numRef("c", 12),
+		nameRef("t", "Customer"),
+	)
+}
+
+func TestExtractRefsKeepsSlashAndHyphenNames(t *testing.T) {
+	text := `
+TableRelation=Country/Region;
+TableRelation=Salesperson/Purchaser;
+TableRelation=To-do;
+TableRelation=Customer.No.;
+`
+	assertRefs(t, text,
+		nameRef("t", "Country/Region"),
+		nameRef("t", "Salesperson/Purchaser"),
+		nameRef("t", "To-do"),
+		nameRef("t", "Customer"),
+	)
+}
+
 func TestExtractRefsTableRelation(t *testing.T) {
 	text := `
 TableRelation=Customer.No.;

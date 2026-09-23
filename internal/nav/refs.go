@@ -49,10 +49,34 @@ var typeWords = []typeWord{
 	{word: "table", prefix: "t", glued: true, numberOnly: true},
 }
 
+// Keyword lists grouped by first letter. Matching still uses keywordEnd, so a
+// shorter word is not taken when a longer one continues the identifier.
+var (
+	proseByLetter     [26][]string
+	symbolsByLetter   [26][]objectType
+	typeWordsByLetter [26][]typeWord
+)
+
+func init() {
+	for _, name := range proseProperties {
+		proseByLetter[letterIndex(name[0])] = append(proseByLetter[letterIndex(name[0])], name)
+	}
+	for _, typ := range objectTypes {
+		if typ.Symbol == "" {
+			continue
+		}
+		symbolsByLetter[letterIndex(typ.Symbol[0])] = append(symbolsByLetter[letterIndex(typ.Symbol[0])], typ)
+	}
+	for _, spec := range typeWords {
+		typeWordsByLetter[letterIndex(spec.word[0])] = append(typeWordsByLetter[letterIndex(spec.word[0])], spec)
+	}
+}
+
 // ExtractRefs returns the compile-time references in a NAV object text file.
 // The object's own OBJECT header is ignored. Line comments and single-quoted
 // C/AL strings are ignored; double quotes stay, because they are identifiers.
-// Tooltips, captions, option text, and TextConst values are ignored.
+// Tooltips, captions, descriptions, option text, and TextConst values are ignored.
+// The RDLC tag <Report xmlns= is ignored.
 // TableData permission entries are ignored.
 //
 // Each reference is returned once, in source order. A body reference to the
@@ -62,6 +86,7 @@ func ExtractRefs(text string) []Ref {
 	text = blankObjectHeader(text)
 	text = maskCommentsAndStrings(text)
 	text = maskProse(text)
+	text = maskRdlcReportTag(text)
 	text = maskTableData(text)
 	c := &collector{}
 	walkCode(text, func(i int) int {
@@ -248,8 +273,15 @@ func proseSpan(s string, i int) (int, bool) {
 }
 
 func matchProseKeyword(s string, i int) (int, bool) {
+	if i >= len(s) {
+		return i, false
+	}
+	idx := letterIndex(s[i])
+	if idx < 0 {
+		return i, false
+	}
 	best := -1
-	for _, name := range proseProperties {
+	for _, name := range proseByLetter[idx] {
 		end, ok := keywordEnd(s, i, name, false)
 		if ok && end > best {
 			best = end
@@ -354,6 +386,9 @@ func skipSingleQuoted(s string, i int) int {
 }
 
 func textConstSpan(s string, i int) (int, bool) {
+	if i >= len(s) || (s[i] != 'T' && s[i] != 't') {
+		return i, false
+	}
 	end, ok := keywordEnd(s, i, "TextConst", false)
 	if !ok {
 		return i, false
@@ -372,11 +407,38 @@ func blankSpan(buf []byte, from, to int) {
 	}
 }
 
+// maskRdlcReportTag blanks the embedded layout tag <Report xmlns= so the
+// word Report is not read as a report named xmlns.
+func maskRdlcReportTag(text string) string {
+	const needle = "<report xmlns="
+	var buf []byte
+	for i := 0; i+len(needle) <= len(text); i++ {
+		if text[i] != '<' {
+			continue
+		}
+		if !strings.EqualFold(text[i:i+len(needle)], needle) {
+			continue
+		}
+		if buf == nil {
+			buf = []byte(text)
+		}
+		blankSpan(buf, i, i+len(needle))
+		i += len(needle) - 1
+	}
+	if buf == nil {
+		return text
+	}
+	return string(buf)
+}
+
 // maskTableData blanks permission entries such as TableData 81=rimd and
 // TableData "Sales Header"=r. A permission does not force a recompile.
 func maskTableData(text string) string {
 	buf := []byte(text)
 	walkCode(text, func(i int) int {
+		if i >= len(text) || (text[i] != 'T' && text[i] != 't') {
+			return i
+		}
 		end, ok := keywordEnd(text, i, "TableData", false)
 		if !ok {
 			return i
@@ -436,8 +498,9 @@ func tableDataSpanEnd(s string, i int) int {
 	return i
 }
 
-// walkCode visits indexes that are outside double-quoted identifiers.
-// fn returns the index to continue from. A result <= i advances one rune.
+// walkCode visits indexes that are outside double-quoted identifiers and that
+// can start a keyword. fn returns the index to continue from. A result <= i
+// skips the rest of the current identifier, which cannot contain another keyword.
 func walkCode(text string, fn func(i int) int) {
 	i := 0
 	for i < len(text) {
@@ -450,13 +513,16 @@ func walkCode(text string, fn func(i int) int) {
 			}
 			continue
 		}
+		if !isASCIILetter(text[i]) || !atWordStart(text, i) {
+			i++
+			continue
+		}
 		next := fn(i)
 		if next <= i {
-			_, size := utf8.DecodeRuneInString(text[i:])
-			if size < 1 {
-				size = 1
+			i++
+			for i < len(text) && isASCIIIdentCont(text[i]) {
+				i++
 			}
-			i += size
 			continue
 		}
 		i = next
@@ -464,17 +530,30 @@ func walkCode(text string, fn func(i int) int) {
 }
 
 func scanAt(s string, i int, add func(Ref)) (int, bool) {
+	idx := -1
+	if i < len(s) {
+		idx = letterIndex(s[i])
+	}
+	switch idx {
+	case 'c' - 'a', 'd' - 'a', 'f' - 'a', 'o' - 'a', 'p' - 'a', 'q' - 'a', 'r' - 'a', 't' - 'a', 'x' - 'a':
+	default:
+		return i, false
+	}
 	if next, ok := trySymbol(s, i, add); ok {
 		return next, true
 	}
-	if next, ok := tryEvent(s, i, add); ok {
-		return next, true
+	if idx == 'o'-'a' {
+		if next, ok := tryEvent(s, i, add); ok {
+			return next, true
+		}
 	}
-	if next, ok := tryTableNo(s, i, add); ok {
-		return next, true
-	}
-	if next, ok := tryRelation(s, i, add); ok {
-		return next, true
+	if idx == 't'-'a' {
+		if next, ok := tryTableNo(s, i, add); ok {
+			return next, true
+		}
+		if next, ok := tryRelation(s, i, add); ok {
+			return next, true
+		}
 	}
 	if next, ok := tryTyped(s, i, add); ok {
 		return next, true
@@ -486,13 +565,14 @@ func trySymbol(s string, i int, add func(Ref)) (int, bool) {
 	if !atWordStart(s, i) {
 		return i, false
 	}
+	idx := letterIndex(s[i])
+	if idx < 0 || len(symbolsByLetter[idx]) == 0 {
+		return i, false
+	}
 	bestLen := -1
 	bestPrefix := ""
 	bestEnd := i
-	for _, typ := range objectTypes {
-		if typ.Symbol == "" {
-			continue
-		}
+	for _, typ := range symbolsByLetter[idx] {
 		end, ok := keywordEnd(s, i, typ.Symbol, false)
 		if !ok || len(typ.Symbol) <= bestLen {
 			continue
@@ -582,13 +662,66 @@ func tryTyped(s string, i int, add func(Ref)) (int, bool) {
 	if !ok {
 		return i, false
 	}
-	return addTarget(s, end, spec.prefix, spec.numberOnly, add)
+	numeric, id, name, next, ok := readRefTarget(s, end)
+	if !ok {
+		return i, false
+	}
+	if spec.numberOnly && !numeric {
+		return i, false
+	}
+	// A number or a quoted name is a reference. An unquoted name is a reference
+	// only in a declaration (`: Record Customer` or `: TEMPORARY Record Customer`).
+	// That skips field names such as "Record ID", control names such as
+	// "Name=Page Time Sheet", and option values such as "::Codeunit THEN".
+	if !numeric && name != "" && !quotedAt(s, end) && !unquotedTypeNameAllowed(s, i) {
+		return i, false
+	}
+	if numeric {
+		add(Ref{Prefix: spec.prefix, ID: id, Numeric: true})
+	} else {
+		add(Ref{Prefix: spec.prefix, Name: name})
+	}
+	return next, true
+}
+
+func quotedAt(s string, i int) bool {
+	i = skipHSpace(s, i)
+	return i < len(s) && s[i] == '"'
+}
+
+func unquotedTypeNameAllowed(s string, keywordStart int) bool {
+	j := keywordStart
+	for j > 0 && (s[j-1] == ' ' || s[j-1] == '\t' || s[j-1] == '\r') {
+		j--
+	}
+	if j >= 2 && s[j-1] == ':' && s[j-2] == ':' {
+		return false
+	}
+	if j > 0 && s[j-1] == ':' {
+		return true
+	}
+	wordEnd := j
+	for j > 0 {
+		r, size := utf8.DecodeLastRuneInString(s[:j])
+		if !isIdentCont(r) {
+			break
+		}
+		j -= size
+	}
+	return strings.EqualFold(s[j:wordEnd], "TEMPORARY")
 }
 
 func matchTypeWord(s string, i int) (typeWord, int, bool) {
 	var best typeWord
 	bestEnd := -1
-	for _, spec := range typeWords {
+	idx := -1
+	if i < len(s) {
+		idx = letterIndex(s[i])
+	}
+	if idx < 0 {
+		return typeWord{}, i, false
+	}
+	for _, spec := range typeWordsByLetter[idx] {
 		end, ok := keywordEnd(s, i, spec.word, spec.glued)
 		if !ok {
 			continue
@@ -794,11 +927,29 @@ func readRefTarget(s string, i int) (numeric bool, id int, name string, next int
 		}
 		return true, id, "", next, true
 	}
-	name, next, ok = readIdent(s, i)
+	name, next, ok = readObjectName(s, i)
 	if !ok {
 		return false, 0, "", i, false
 	}
 	return false, 0, name, next, true
+}
+
+// readObjectName reads an unquoted object name. '/' and '-' stay inside the
+// name so Country/Region and To-do are not split into Country and To.
+func readObjectName(s string, i int) (string, int, bool) {
+	start := i
+	_, next, ok := readIdent(s, i)
+	if !ok {
+		return "", i, false
+	}
+	for next < len(s) && (s[next] == '/' || s[next] == '-') {
+		_, after, ok := readIdent(s, next+1)
+		if !ok {
+			break
+		}
+		next = after
+	}
+	return s[start:next], next, true
 }
 
 func readQuoted(s string, i int) (string, int, bool) {
@@ -857,14 +1008,25 @@ func readInt(s string, i int) (int, int, bool) {
 }
 
 func keywordEnd(s string, i int, kw string, allowDigit bool) (int, bool) {
-	if !atWordStart(s, i) {
+	n := len(kw)
+	if i+n > len(s) || !atWordStart(s, i) || !hasKeywordPrefix(s[i:i+n], kw) {
 		return i, false
 	}
-	if i+len(kw) > len(s) || !strings.EqualFold(s[i:i+len(kw)], kw) {
-		return i, false
-	}
-	end := i + len(kw)
+	end := i + n
 	if end >= len(s) {
+		return end, true
+	}
+	c := s[end]
+	if c < utf8.RuneSelf {
+		if c >= '0' && c <= '9' {
+			if allowDigit {
+				return end, true
+			}
+			return i, false
+		}
+		if isASCIILetter(c) || c == '_' {
+			return i, false
+		}
 		return end, true
 	}
 	r, _ := utf8.DecodeRuneInString(s[end:])
@@ -880,6 +1042,48 @@ func keywordEnd(s string, i int, kw string, allowDigit bool) (int, bool) {
 	return end, true
 }
 
+func hasKeywordPrefix(s, kw string) bool {
+	for i := 0; i < len(kw); i++ {
+		a := s[i]
+		b := kw[i]
+		if a == b {
+			continue
+		}
+		if a >= 'A' && a <= 'Z' {
+			a += 'a' - 'A'
+		}
+		if b >= 'A' && b <= 'Z' {
+			b += 'a' - 'A'
+		}
+		if a == b && a < utf8.RuneSelf {
+			continue
+		}
+		if a >= utf8.RuneSelf || b >= utf8.RuneSelf {
+			return strings.EqualFold(s, kw)
+		}
+		return false
+	}
+	return true
+}
+
+func letterIndex(b byte) int {
+	if b >= 'a' && b <= 'z' {
+		return int(b - 'a')
+	}
+	if b >= 'A' && b <= 'Z' {
+		return int(b - 'A')
+	}
+	return -1
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func isASCIIIdentCont(b byte) bool {
+	return isASCIILetter(b) || (b >= '0' && b <= '9') || b == '_'
+}
+
 func matchKeyword(s string, i int, kw string) (int, bool) {
 	return keywordEnd(s, i, kw, false)
 }
@@ -887,6 +1091,10 @@ func matchKeyword(s string, i int, kw string) (int, bool) {
 func atWordStart(s string, i int) bool {
 	if i <= 0 {
 		return true
+	}
+	prev := s[i-1]
+	if prev < utf8.RuneSelf {
+		return prev != '_' && !isASCIILetter(prev) && (prev < '0' || prev > '9')
 	}
 	r, _ := utf8.DecodeLastRuneInString(s[:i])
 	return !isIdentCont(r)
