@@ -17,6 +17,7 @@ type Object struct {
 	TypeName string // Table, Codeunit, ...
 	Name     string // name from the OBJECT header
 	Path     string
+	source   string // decoded file text; cleared after references are indexed
 }
 
 // Catalog is the prefix+id index of one folder and a case-insensitive name index.
@@ -67,7 +68,8 @@ func ReadCatalog(folder string) (*Catalog, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("%s: %s", entry.Name(), err))
 			continue
 		}
-		header, kind, ok := readHeader(DecodeText(data))
+		text := DecodeText(data)
+		header, kind, ok := readHeader(text)
 		if !ok {
 			warnings = append(warnings, fmt.Sprintf("%s: %s", entry.Name(), kind))
 			continue
@@ -92,6 +94,7 @@ func ReadCatalog(folder string) (*Catalog, []string, error) {
 			TypeName: wantType,
 			Name:     header.Name,
 			Path:     filepath.Join(folder, entry.Name()),
+			source:   text,
 		}
 		cat.Objects[obj.Key] = obj
 		cat.addName(obj.Prefix, obj.Name, obj.Key)

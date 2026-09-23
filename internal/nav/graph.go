@@ -108,7 +108,7 @@ func Build(folder string) (*Graph, Summary, error) {
 	for key, obj := range cat.Objects {
 		g.names[key] = obj.Name
 	}
-	links, names := g.indexRefs(&warnings)
+	links, names := g.indexRefs()
 	return g, Summary{
 		Objects:         len(cat.Objects),
 		Unresolved:      unresolvedCount(names),
@@ -118,8 +118,8 @@ func Build(folder string) (*Graph, Summary, error) {
 	}, nil
 }
 
-// indexRefs reads each cataloged file and records its compile-time references.
-func (g *Graph) indexRefs(warnings *[]string) (links int, names []UnresolvedName) {
+// indexRefs scans each cataloged object's source and records its compile-time references.
+func (g *Graph) indexRefs() (links int, names []UnresolvedName) {
 	keys := make([]string, 0, len(g.catalog.Objects))
 	for key := range g.catalog.Objects {
 		keys = append(keys, key)
@@ -129,12 +129,10 @@ func (g *Graph) indexRefs(warnings *[]string) (links int, names []UnresolvedName
 	hits := map[string]*unresolvedHit{}
 	for _, key := range keys {
 		obj := g.catalog.Objects[key]
-		data, err := os.ReadFile(obj.Path)
-		if err != nil {
-			*warnings = append(*warnings, fmt.Sprintf("%s: %s", filepath.Base(obj.Path), err))
-			continue
-		}
-		for _, ref := range ExtractRefs(DecodeText(data)) {
+		text := obj.source
+		obj.source = ""
+		g.catalog.Objects[key] = obj
+		for _, ref := range ExtractRefs(text) {
 			callee, ok := resolveRef(g.catalog, ref)
 			if !ok {
 				recordUnresolved(hits, ambiguous, ref, obj.Key)
