@@ -97,6 +97,25 @@ func TestBuildReplacesMapAndKeepsItOnFailure(t *testing.T) {
 	}
 }
 
+func TestBuildReportsHeaderMismatch(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "t18 - Customer.txt")
+	if err := os.WriteFile(good, []byte("OBJECT Table 18 Customer\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(dir, "c11 - Bad.txt")
+	if err := os.WriteFile(bad, []byte("OBJECT Codeunit 12 Bad\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := runScript(t, "build \""+dir+"\"\nexit\n")
+	if !strings.Contains(out, "warning: c11 - Bad.txt: OBJECT id 12 does not match file id 11") {
+		t.Fatalf("mismatch was not reported:\n%s", out)
+	}
+	if !strings.Contains(out, "objects: 1, links: 0, unresolved: 0") {
+		t.Fatalf("summary missing:\n%s", out)
+	}
+}
+
 func TestQuotedPathAndBlankLines(t *testing.T) {
 	out := runScript(t, "\n\"unterminated\nhelp extra\nquit\n")
 	if !strings.Contains(out, "unterminated quote") {

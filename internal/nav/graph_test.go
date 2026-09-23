@@ -27,7 +27,7 @@ func TestBuildEmptyGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum != (Summary{}) {
+	if sum.Objects != 0 || sum.Links != 0 || sum.Unresolved != 0 || len(sum.Warnings) != 0 {
 		t.Fatalf("summary = %+v", sum)
 	}
 	if got := g.Dependents("c12"); len(got) != 0 {
@@ -38,6 +38,35 @@ func TestBuildEmptyGraph(t *testing.T) {
 	}
 	if _, ok := CanonicalKey("12"); ok {
 		t.Fatal("bare id should be rejected")
+	}
+}
+
+func TestBuildCatalogsObjects(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"c12 - Gen. Jnl.-Post Line.txt": "OBJECT Codeunit 12 \"Gen. Jnl.-Post Line\"\r\n",
+		"t81 - Gen. Journal Line.txt":   "OBJECT Table 81 Gen. Journal Line\r\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, sum, err := Build(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Objects != 2 || sum.Links != 0 || sum.Unresolved != 0 || len(sum.Warnings) != 0 {
+		t.Fatalf("summary = %+v", sum)
+	}
+	if g.names["c12"] != "Gen. Jnl.-Post Line" || g.names["t81"] != "Gen. Journal Line" {
+		t.Fatalf("names = %+v", g.names)
+	}
+	if key, ok := g.catalog.ResolveName("Codeunit", "Gen. Jnl.-Post Line"); !ok || key != "c12" {
+		t.Fatalf("resolve = %s %v", key, ok)
+	}
+	if got := g.Dependents("c12"); len(got) != 0 {
+		t.Fatalf("dependents = %+v", got)
 	}
 }
 

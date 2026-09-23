@@ -11,13 +11,16 @@ import (
 )
 
 // keyPattern is a lowercase type prefix plus a numeric id, as in c12 or t81.
-var keyPattern = regexp.MustCompile(`^[cdfmprqtx][0-9]+$`)
+var keyPattern = regexp.MustCompile(`^[` + prefixLetters + `][0-9]+$`)
 
 // Summary is the short result of a build.
 type Summary struct {
 	Objects    int
 	Unresolved int
 	Links      int
+	// Warnings are object files that were skipped, for example because the
+	// OBJECT id does not match the file name. The build still replaces the map.
+	Warnings []string
 }
 
 // Dependent is one object that references the requested key.
@@ -27,11 +30,11 @@ type Dependent struct {
 }
 
 // Graph is the reverse map from callee key to the objects that reference it.
-// Build currently validates the folder and returns an empty map. Catalog and
-// reference scanning fill callers and names.
+// Build fills catalog and names. Reference scanning fills callers.
 type Graph struct {
 	callers map[string]map[string]struct{}
 	names   map[string]string
+	catalog *Catalog
 }
 
 // CanonicalKey returns the lowercase object key, or false when raw is not a
@@ -44,8 +47,9 @@ func CanonicalKey(raw string) (string, bool) {
 	return key, true
 }
 
-// Build checks that folder is a directory and returns an empty reverse map.
-// A later pass replaces the map contents with scanned references.
+// Build catalogs NAV object text files in folder (top level only) and returns
+// the reverse map. Reference scanning fills callers; until then the map has
+// object names and no links.
 func Build(folder string) (*Graph, Summary, error) {
 	folder = strings.TrimSpace(folder)
 	if folder == "" {
@@ -61,11 +65,19 @@ func Build(folder string) (*Graph, Summary, error) {
 	if !info.IsDir() {
 		return nil, Summary{}, fmt.Errorf("not a folder: %s", folder)
 	}
+	cat, warnings, err := ReadCatalog(folder)
+	if err != nil {
+		return nil, Summary{}, err
+	}
 	g := &Graph{
 		callers: map[string]map[string]struct{}{},
-		names:   map[string]string{},
+		names:   make(map[string]string, len(cat.Objects)),
+		catalog: cat,
 	}
-	return g, Summary{}, nil
+	for key, obj := range cat.Objects {
+		g.names[key] = obj.Name
+	}
+	return g, Summary{Objects: len(cat.Objects), Warnings: warnings}, nil
 }
 
 // Dependents returns the callers of key, sorted by type prefix then numeric id.

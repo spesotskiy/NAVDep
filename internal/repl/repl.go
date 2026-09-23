@@ -73,6 +73,9 @@ func (s *session) cmdBuild(args []string) {
 	}
 	// A successful build replaces the previous map. A failed build leaves it.
 	s.graph = g
+	for _, w := range sum.Warnings {
+		fmt.Fprintf(s.out, "warning: %s\n", w)
+	}
 	fmt.Fprintf(s.out, "objects: %d, links: %d, unresolved: %d\n", sum.Objects, sum.Links, sum.Unresolved)
 }
 
