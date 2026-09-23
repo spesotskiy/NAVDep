@@ -23,12 +23,33 @@ type Summary struct {
 	// Warnings are object files that were skipped, for example because the
 	// OBJECT id does not match the file name. The build still replaces the map.
 	Warnings []string
+	// UnresolvedNames are name references that did not become an object key.
+	// A numeric reference is never listed here, even when its file is absent.
+	UnresolvedNames []UnresolvedName
+}
+
+// UnresolvedName is one name that build could not resolve.
+// Reason is "missing" when no object of that type has the name, or "ambiguous"
+// when more than one object of that type uses it. Callers are the objects that
+// mentioned the name, each once.
+type UnresolvedName struct {
+	Prefix  string   `json:"prefix"`
+	Name    string   `json:"name"`
+	Count   int      `json:"count"`
+	Reason  string   `json:"reason"`
+	Callers []string `json:"callers"`
 }
 
 // Dependent is one object that references the requested key.
 type Dependent struct {
 	Key  string
 	Name string
+}
+
+// UnusedObject is an accepted object that no other file references.
+type UnusedObject struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
 }
 
 // Graph is the reverse map from callee key to the objects that reference it.
@@ -80,22 +101,25 @@ func Build(folder string) (*Graph, Summary, error) {
 	for key, obj := range cat.Objects {
 		g.names[key] = obj.Name
 	}
-	links, unresolved := g.indexRefs(&warnings)
+	links, names := g.indexRefs(&warnings)
 	return g, Summary{
-		Objects:    len(cat.Objects),
-		Unresolved: unresolved,
-		Links:      links,
-		Warnings:   warnings,
+		Objects:         len(cat.Objects),
+		Unresolved:      unresolvedCount(names),
+		Links:           links,
+		Warnings:        warnings,
+		UnresolvedNames: names,
 	}, nil
 }
 
 // indexRefs reads each cataloged file and records its compile-time references.
-func (g *Graph) indexRefs(warnings *[]string) (links, unresolved int) {
+func (g *Graph) indexRefs(warnings *[]string) (links int, names []UnresolvedName) {
 	keys := make([]string, 0, len(g.catalog.Objects))
 	for key := range g.catalog.Objects {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	ambiguous := ambiguousNames(g.catalog)
+	hits := map[string]*unresolvedHit{}
 	for _, key := range keys {
 		obj := g.catalog.Objects[key]
 		data, err := os.ReadFile(obj.Path)
@@ -106,7 +130,7 @@ func (g *Graph) indexRefs(warnings *[]string) (links, unresolved int) {
 		for _, ref := range ExtractRefs(DecodeText(data)) {
 			callee, ok := resolveRef(g.catalog, ref)
 			if !ok {
-				unresolved++
+				recordUnresolved(hits, ambiguous, ref, obj.Key)
 				continue
 			}
 			if callee == obj.Key {
@@ -117,7 +141,174 @@ func (g *Graph) indexRefs(warnings *[]string) (links, unresolved int) {
 			}
 		}
 	}
-	return links, unresolved
+	return links, unresolvedList(hits)
+}
+
+type unresolvedHit struct {
+	prefix  string
+	name    string
+	reason  string
+	callers map[string]struct{}
+}
+
+func ambiguousNames(cat *Catalog) map[string]struct{} {
+	counts := map[string]int{}
+	for _, obj := range cat.Objects {
+		counts[obj.Prefix+"\x00"+strings.ToLower(obj.Name)]++
+	}
+	ambiguous := map[string]struct{}{}
+	for id, n := range counts {
+		if n > 1 {
+			ambiguous[id] = struct{}{}
+		}
+	}
+	return ambiguous
+}
+
+func recordUnresolved(hits map[string]*unresolvedHit, ambiguous map[string]struct{}, ref Ref, caller string) {
+	if ref.Numeric {
+		return
+	}
+	name := strings.TrimSpace(ref.Name)
+	if name == "" || ref.Prefix == "" {
+		return
+	}
+	id := ref.Prefix + "\x00" + strings.ToLower(name)
+	hit := hits[id]
+	if hit == nil {
+		reason := "missing"
+		if _, ok := ambiguous[id]; ok {
+			reason = "ambiguous"
+		}
+		hit = &unresolvedHit{
+			prefix:  ref.Prefix,
+			name:    name,
+			reason:  reason,
+			callers: map[string]struct{}{},
+		}
+		hits[id] = hit
+	}
+	hit.callers[caller] = struct{}{}
+}
+
+func unresolvedList(hits map[string]*unresolvedHit) []UnresolvedName {
+	out := make([]UnresolvedName, 0, len(hits))
+	for _, hit := range hits {
+		callers := make([]string, 0, len(hit.callers))
+		for caller := range hit.callers {
+			callers = append(callers, caller)
+		}
+		sort.Slice(callers, func(i, j int) bool {
+			return lessKey(callers[i], callers[j])
+		})
+		out = append(out, UnresolvedName{
+			Prefix:  hit.prefix,
+			Name:    hit.name,
+			Count:   len(callers),
+			Reason:  hit.reason,
+			Callers: callers,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		if out[i].Prefix != out[j].Prefix {
+			return out[i].Prefix < out[j].Prefix
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func unresolvedCount(names []UnresolvedName) int {
+	n := 0
+	for _, name := range names {
+		n += name.Count
+	}
+	return n
+}
+
+// Unused returns accepted objects that no other file references, sorted by type
+// prefix then numeric id. A reference by number or by a unique name counts.
+// The object's own file does not. An ambiguous name does not mark either object used.
+func (g *Graph) Unused() []UnusedObject {
+	if g == nil || g.catalog == nil {
+		return []UnusedObject{}
+	}
+	keys := make([]string, 0, len(g.catalog.Objects))
+	for key := range g.catalog.Objects {
+		if len(g.callers[key]) == 0 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return lessKey(keys[i], keys[j])
+	})
+	out := make([]UnusedObject, 0, len(keys))
+	for _, key := range keys {
+		obj := g.catalog.Objects[key]
+		out = append(out, UnusedObject{
+			Key:  obj.Key,
+			Name: obj.Name,
+		})
+	}
+	return out
+}
+
+// WriteUnusedLog writes objects to unused.json inside dir and returns that path.
+// folder is the scanned folder recorded in the file. Each build replaces the file.
+func WriteUnusedLog(dir, folder string, objects []UnusedObject) (string, error) {
+	if objects == nil {
+		objects = []UnusedObject{}
+	}
+	doc := struct {
+		Folder string         `json:"folder"`
+		Unused int            `json:"unused"`
+		Names  []UnusedObject `json:"names"`
+	}{
+		Folder: folder,
+		Unused: len(objects),
+		Names:  objects,
+	}
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	raw = append(raw, '\n')
+	path := filepath.Join(dir, "unused.json")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// WriteUnresolvedLog writes names to unresolved.json inside dir and returns that path.
+// folder is the scanned folder recorded in the file. Each build replaces the file.
+func WriteUnresolvedLog(dir, folder string, sum Summary) (string, error) {
+	names := sum.UnresolvedNames
+	if names == nil {
+		names = []UnresolvedName{}
+	}
+	doc := struct {
+		Folder     string           `json:"folder"`
+		Unresolved int              `json:"unresolved"`
+		Names      []UnresolvedName `json:"names"`
+	}{
+		Folder:     folder,
+		Unresolved: sum.Unresolved,
+		Names:      names,
+	}
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	raw = append(raw, '\n')
+	path := filepath.Join(dir, "unresolved.json")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // resolveRef turns a numeric reference into its key, or a name into a catalog key.

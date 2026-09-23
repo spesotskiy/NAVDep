@@ -1,2 +1,6 @@
 # Local test objects
 TestObjects/
+
+# Written into a scanned folder by build
+unresolved.json
+unused.json

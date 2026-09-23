@@ -133,6 +133,23 @@ func TestDependentsPrintsJSONByType(t *testing.T) {
 	if !strings.Contains(out, `{"c":"2|11","t":"81"}`) {
 		t.Fatalf("json missing:\n%s", out)
 	}
+	if !strings.Contains(out, "unresolved log: "+filepath.Join(dir, "unresolved.json")) {
+		t.Fatalf("log path missing:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "unresolved.json")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "unused log: "+filepath.Join(dir, "unused.json")) {
+		t.Fatalf("unused log path missing:\n%s", out)
+	}
+	unused, err := os.ReadFile(filepath.Join(dir, "unused.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(unused)
+	if !strings.Contains(text, `"name": "Other"`) || strings.Contains(text, "Gen. Jnl.-Post Line") {
+		t.Fatalf("unused log = %s", text)
+	}
 }
 
 func TestQuotedPathAndBlankLines(t *testing.T) {

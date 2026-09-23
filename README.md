@@ -1,6 +1,6 @@
 # navdep
 
-Status as of **2026-09-24 01:22 +03:00**.
+Status as of **2026-09-24 01:45 +03:00**.
 
 Interactive console for a folder of Navision object text files. One process, no external dependencies. `build` indexes the folder and builds a reverse map of compile-time references. `dependents` reads that map.
 
@@ -15,6 +15,8 @@ go run ./cmd/navdep
 ```
 navdep> build "C:\NAV\Objects"
 objects: 2, links: 2, unresolved: 0
+unresolved log: C:\NAV\Objects\unresolved.json
+unused log: C:\NAV\Objects\unused.json
 navdep> dependents c12
 {"c":"11","t":"81"}
 navdep> help
@@ -50,6 +52,8 @@ File text is read as UTF-8, as UTF-16 when a BOM is present, or as Windows-1252 
 After indexing headers, each accepted file is scanned for compile-time references. Comments, single-quoted strings, and TableData permissions are not references. A numeric reference such as `Codeunit 12` becomes a key even when that file is missing. An object is not listed as a dependent of itself. Each caller is stored once.
 
 The summary line is `objects`, `links`, and `unresolved`. Object count is the number of accepted files. Link count is the number of unique caller edges. Unresolved count is names that do not resolve (unknown, or the same name used by two objects of the same type).
+
+Build then replaces two files in the folder. `unresolved.json` lists names that did not resolve. `unused.json` lists accepted objects that no other file references. A reference by number or by a unique name counts. The object's own file does not. An ambiguous name does not mark either object as used. Each unused entry has the key and name, sorted by type then id.
 
 ## What dependents does
 

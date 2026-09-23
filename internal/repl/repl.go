@@ -77,6 +77,19 @@ func (s *session) cmdBuild(args []string) {
 		fmt.Fprintf(s.out, "warning: %s\n", w)
 	}
 	fmt.Fprintf(s.out, "objects: %d, links: %d, unresolved: %d\n", sum.Objects, sum.Links, sum.Unresolved)
+	folder := strings.TrimSpace(args[0])
+	logPath, err := nav.WriteUnresolvedLog(folder, folder, sum)
+	if err != nil {
+		fmt.Fprintf(s.out, "warning: unresolved log: %s\n", err)
+	} else {
+		fmt.Fprintf(s.out, "unresolved log: %s\n", logPath)
+	}
+	unusedPath, err := nav.WriteUnusedLog(folder, folder, s.graph.Unused())
+	if err != nil {
+		fmt.Fprintf(s.out, "warning: unused log: %s\n", err)
+		return
+	}
+	fmt.Fprintf(s.out, "unused log: %s\n", unusedPath)
 }
 
 func (s *session) cmdDependents(args []string) {
@@ -102,7 +115,7 @@ func (s *session) cmdHelp(args []string) {
 		return
 	}
 	fmt.Fprint(s.out, `commands:
-  build <folder>    scan a folder and replace the dependency map
+  build <folder>    scan a folder, replace the map, write unresolved.json and unused.json
   dependents <key>  print callers as JSON grouped by type, ids joined by |
   help              show this help
   exit, quit        end the session
