@@ -1,8 +1,8 @@
 # navdep
 
-Status as of **2026-09-24 00:27 +03:00**.
+Status as of **2026-09-24 01:13 +03:00**.
 
-Interactive console for a folder of Navision object text files. One process, no external dependencies. `build` indexes the folder. `dependents` reads that index.
+Interactive console for a folder of Navision object text files. One process, no external dependencies. `build` indexes the folder and builds a reverse map of compile-time references. `dependents` reads that map.
 
 ## Run
 
@@ -14,8 +14,10 @@ go run ./cmd/navdep
 
 ```
 navdep> build "C:\NAV\Objects"
-objects: 2, links: 0, unresolved: 0
+objects: 2, links: 2, unresolved: 0
 navdep> dependents c12
+c11 - Gen. Jnl.-Check Line
+t81 - Gen. Journal Line
 navdep> help
 navdep> exit
 ```
@@ -24,7 +26,7 @@ A bad command prints `error:` and the session continues. `exit` and `quit` end i
 
 ## What build does
 
-`build <folder>` scans the top level of the folder and replaces the in-memory index. A failed build leaves the previous index in place.
+`build <folder>` scans the top level of the folder and replaces the in-memory index and reverse map. A failed build leaves the previous map in place.
 
 Accepted files are `*.txt` named `{prefix}{id} - {name}.txt`, for example `c50001 - Exchange Management.txt`. The name is the text after the first hyphen, so it may contain hyphens. Every other file is ignored.
 
@@ -46,17 +48,17 @@ Names are matched without regard to case. `CODEUNIT::`, `DATABASE::` (tables), `
 
 File text is read as UTF-8, as UTF-16 when a BOM is present, or as Windows-1252 when the bytes are not valid UTF-8.
 
-The summary line is `objects`, `links`, and `unresolved`. Object count is the number of accepted files. Link count and unresolved count stay at 0: reference scanning is not in the program yet, so the caller list is empty.
+After indexing headers, each accepted file is scanned for compile-time references. Comments, single-quoted strings, and TableData permissions are not references. A numeric reference such as `Codeunit 12` becomes a key even when that file is missing. An object is not listed as a dependent of itself. Each caller is stored once.
+
+The summary line is `objects`, `links`, and `unresolved`. Object count is the number of accepted files. Link count is the number of unique caller edges. Unresolved count is names that do not resolve (unknown, or the same name used by two objects of the same type).
 
 ## What dependents does
 
 `dependents <key>` requires a successful `build` first. The key is a type prefix plus an id, such as `c12` or `t81`, and the match ignores case.
 
-When callers are present, each one is printed on its own line, sorted by type prefix then numeric id:
+Each caller is printed on its own line as `key - name`, sorted by type prefix then numeric id:
 
 ```
 c11 - Gen. Jnl.-Check Line
 t81 - Gen. Journal Line
 ```
-
-A build from object files does not fill that list yet, so the command prints no lines after a normal build.
