@@ -257,6 +257,22 @@ TableRelation=Customer.No.;
 	)
 }
 
+func TestExtractRefsSourceFieldIsTable(t *testing.T) {
+	text := `SourceField=CAL Test Enabled Codeunit::Test Codeunit ID }
+SourceField="Sales Header"::"No."
+VariableName=GenBusPostingGroup;
+SourceField=GenBusPostingGroup::Code }
+VariableName=<CAL Test Line>;
+SourceField=<CAL Test Line>::Test Codeunit }
+CODEUNIT::"CRM Integration Table Synch."
+`
+	assertRefs(t, text,
+		nameRef("t", "CAL Test Enabled Codeunit"),
+		nameRef("t", "Sales Header"),
+		nameRef("c", "CRM Integration Table Synch."),
+	)
+}
+
 func TestExtractRefsTableRelation(t *testing.T) {
 	text := `
 TableRelation=Customer.No.;

@@ -78,6 +78,8 @@ func init() {
 // Tooltips, captions, descriptions, option text, and TextConst values are ignored.
 // The RDLC tag <Report xmlns= is ignored.
 // TableData permission entries are ignored.
+// SourceField=Table::Field names the table before ::. A matching VariableName
+// is the XMLport element variable, not a separate object.
 //
 // Each reference is returned once, in source order. A body reference to the
 // object's own id is still returned; dropping self-edges belongs to the graph.
@@ -89,8 +91,9 @@ func ExtractRefs(text string) []Ref {
 	text = maskRdlcReportTag(text)
 	text = maskTableData(text)
 	c := &collector{}
+	vars := variableNames(text)
 	walkCode(text, func(i int) int {
-		if next, ok := scanAt(text, i, c.add); ok {
+		if next, ok := scanAt(text, i, c.add, vars); ok {
 			return next
 		}
 		return i
@@ -529,14 +532,20 @@ func walkCode(text string, fn func(i int) int) {
 	}
 }
 
-func scanAt(s string, i int, add func(Ref)) (int, bool) {
+func scanAt(s string, i int, add func(Ref), vars map[string]struct{}) (int, bool) {
 	idx := -1
 	if i < len(s) {
 		idx = letterIndex(s[i])
 	}
 	switch idx {
-	case 'c' - 'a', 'd' - 'a', 'f' - 'a', 'o' - 'a', 'p' - 'a', 'q' - 'a', 'r' - 'a', 't' - 'a', 'x' - 'a':
+	case 'c' - 'a', 'd' - 'a', 'f' - 'a', 'o' - 'a', 'p' - 'a', 'q' - 'a', 'r' - 'a', 's' - 'a', 't' - 'a', 'x' - 'a':
 	default:
+		return i, false
+	}
+	if idx == 's'-'a' {
+		if next, ok := trySourceField(s, i, add, vars); ok {
+			return next, true
+		}
 		return i, false
 	}
 	if next, ok := trySymbol(s, i, add); ok {
@@ -589,6 +598,136 @@ func trySymbol(s string, i int, add func(Ref)) (int, bool) {
 		return i, false
 	}
 	return addTarget(s, bestEnd, bestPrefix, false, add)
+}
+
+// trySourceField matches SourceField=Table::Field. The name before :: is a
+// table, including a multi-word name such as "CAL Test Enabled Codeunit".
+// The name after :: is a field, not an object. When that name is a
+// VariableName in the same object, it is the element variable; the table is
+// the SourceTable id already recorded on the element.
+func trySourceField(s string, i int, add func(Ref), vars map[string]struct{}) (int, bool) {
+	end, ok := keywordEnd(s, i, "SourceField", false)
+	if !ok {
+		return i, false
+	}
+	j := skipHSpace(s, end)
+	if j >= len(s) || s[j] != '=' {
+		return i, false
+	}
+	name, after, ok := readSourceTable(s, j+1)
+	if !ok {
+		return i, false
+	}
+	raw := name
+	if strings.HasPrefix(name, "<") && strings.HasSuffix(name, ">") {
+		name = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(name, "<"), ">"))
+	}
+	if name != "" {
+		if _, skip := vars[strings.ToLower(raw)]; !skip {
+			if _, skip := vars[strings.ToLower(name)]; !skip {
+				add(Ref{Prefix: "t", Name: name})
+			}
+		}
+	}
+	return skipSourceField(s, after), true
+}
+
+func variableNames(s string) map[string]struct{} {
+	names := map[string]struct{}{}
+	for i := 0; i < len(s); {
+		end, ok := keywordEnd(s, i, "VariableName", false)
+		if !ok {
+			i++
+			continue
+		}
+		j := skipHSpace(s, end)
+		if j >= len(s) || s[j] != '=' {
+			i = end
+			continue
+		}
+		name, next, ok := readSourceTableName(s, j+1)
+		if !ok {
+			i = j + 1
+			continue
+		}
+		names[strings.ToLower(name)] = struct{}{}
+		i = next
+	}
+	return names
+}
+
+func readSourceTable(s string, i int) (string, int, bool) {
+	name, next, ok := readSourceTableName(s, i)
+	if !ok {
+		return "", i, false
+	}
+	j := skipHSpace(s, next)
+	if j+1 >= len(s) || s[j] != ':' || s[j+1] != ':' {
+		return "", i, false
+	}
+	return name, j + 2, true
+}
+
+func readSourceTableName(s string, i int) (string, int, bool) {
+	i = skipSpace(s, i)
+	if i >= len(s) {
+		return "", i, false
+	}
+	if s[i] == '"' {
+		name, next, ok := readQuoted(s, i)
+		if !ok || name == "" {
+			return "", i, false
+		}
+		return name, next, true
+	}
+	if s[i] == '<' {
+		rel := strings.IndexByte(s[i+1:], '>')
+		if rel < 0 {
+			return "", i, false
+		}
+		next := i + 1 + rel + 1
+		name := strings.TrimSpace(s[i:next])
+		if name == "<>" {
+			return "", i, false
+		}
+		return name, next, true
+	}
+	start := i
+	end := i
+	for {
+		_, next, ok := readObjectName(s, i)
+		if !ok {
+			return "", start, false
+		}
+		end = next
+		j := skipHSpace(s, next)
+		if j >= len(s) || s[j] == ';' || s[j] == '}' || s[j] == '\n' || s[j] == '\r' || (j+1 < len(s) && s[j] == ':' && s[j+1] == ':') {
+			return strings.TrimSpace(s[start:end]), end, true
+		}
+		if isASCIILetter(s[j]) {
+			i = j
+			continue
+		}
+		return strings.TrimSpace(s[start:end]), end, true
+	}
+}
+
+func skipSourceField(s string, i int) int {
+	for i < len(s) {
+		switch s[i] {
+		case '"':
+			_, ni, ok := readQuoted(s, i)
+			if !ok || ni <= i {
+				return i
+			}
+			i = ni
+		case ';', '}', '\n', '\r':
+			return i
+		default:
+			i++
+		}
+	}
+	return i
 }
 
 // tryEvent matches [EventSubscriber(ObjectType::Codeunit, 80, ...)].
